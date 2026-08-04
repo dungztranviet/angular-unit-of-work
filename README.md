@@ -100,6 +100,36 @@ diff([{ id: 1, name: "one" }], [{ id: 1, name: "one" }, { id: 2, name: "two" }])
 // { "2": { action: "added", value: { id: 2, name: "two" } } }
 ```
 
+### `DiffOptions`
+
+```ts
+interface DiffOptions {
+  idKey?: string;                                        // default: "id"
+  ignore?: string[];
+  arrayStrategy?: "byId" | "sequence";                   // default: "byId"
+  isEqual?: (baseline: unknown, current: unknown) => boolean; // default: Object.is
+}
+```
+
+- **`idKey`** — which property identifies an array item across the two snapshots.
+- **`ignore`** — property names to skip everywhere, at any depth.
+- **`arrayStrategy`** — `"byId"` matches items by `idKey` (fast, but a reorder with no id looks
+  like every shifted item was modified). `"sequence"` aligns items by content instead — a `git
+  diff`-style longest-common-subsequence match. A pure reorder that keeps items' *relative* order
+  produces no diff for the untouched items; a genuinely different item is reported as one
+  `removed` plus one `added` (keyed `-<baselineIndex>` / `+<currentIndex>`), never as a
+  per-property change, since there's no id to say "this is the same item, edited."
+- **`isEqual`** — how to compare anything that isn't an array, plain object, `Date`, `Map`,
+  `Set`, or `RegExp` — in practice, class instances and primitives. Defaults to `Object.is`
+  (reference equality for objects), so two different instances with identical fields are reported
+  as changed unless you supply an `isEqual` that knows how to compare your class.
+
+`Map`s and `Set`s are diffed structurally: a `Map`'s entries are matched by key
+(added/removed/modified, keyed by the Map key); a `Set`'s entries by value (added/removed only —
+a `Set` has no sub-properties to modify). `RegExp`s are compared by `.source` + `.flags`. Circular
+references are detected and stopped at the second occurrence of the same (baseline, current) pair
+— they won't crash, but nothing past that point in the cycle is compared.
+
 ### The `ChangeSet` shape
 
 A `ChangeSet` is a plain object tree. Every key that didn't change is simply absent — there is no
@@ -154,17 +184,20 @@ a property of the `computed()` plumbing, not of the bundled `diff()`.
 
 ## Known limitations
 
-The bundled `diff()` covers the common case — plain objects, nested objects, arrays matched by
-id, `Date` — but it is deliberately small, not exhaustive. As of now it does **not** handle:
+The bundled `diff()` handles plain objects, nested objects, arrays (both by-id and by-content),
+`Date`, `Map`, `Set`, `RegExp`, and circular references — see [`ROADMAP.md`](ROADMAP.md) for how
+those were closed. It's still not an exhaustive deep-diff implementation:
 
-- **Circular references** — will recurse until the call stack overflows.
-- **`Map` / `Set` / `RegExp` / class instances other than `Date`** — treated as a plain object,
-  which for these types silently reports "no changes" even when the content differs.
-- **Reordering an array with no `idKey` match** — falls back to comparing by index, so a pure
-  reorder looks like every shifted item was modified.
+- **Class instances other than the types above** compare by reference (`Object.is`) unless you
+  supply `isEqual` — two instances with identical fields but different references are reported as
+  changed by default.
+- **`arrayStrategy: "sequence"`** is a straightforward O(n·m) longest-common-subsequence diff —
+  fine for form-sized arrays, unmeasured (and not the right tool) for very large ones.
+- **No performance tuning yet** — the whole tree is re-diffed on every `computed()` read; fine for
+  typical form/edit-state sizes, not benchmarked beyond that.
 
-If any of these matter for your data, either supply your own `compare` (see above) or track the
-plan to fix them in [`ROADMAP.md`](ROADMAP.md).
+If any of these matter for your data, supply your own `compare` (see above) — `trackChanges`
+doesn't care how the diff is computed, only what comes back.
 
 ## License
 

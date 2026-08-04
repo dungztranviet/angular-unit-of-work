@@ -111,4 +111,162 @@ describe("diff", () => {
     expect(diff(1, 2)).toEqual({ root: { action: "modified", value: 2, previousValue: 1 } });
     expect(diff(1, 1)).toBeUndefined();
   });
+
+  describe("Map / Set / RegExp / class instances", () => {
+    it("diffs Map entries as added/removed/modified", () => {
+      const baseline = { tags: new Map([["a", 1], ["b", 2]]) };
+      const current = { tags: new Map([["b", 20], ["c", 3]]) };
+
+      const result = diff(baseline, current);
+
+      expect(result).toEqual({
+        tags: {
+          c: { action: "added", value: 3 },
+          a: { action: "removed", value: 1 },
+          b: { action: "modified", value: 20, previousValue: 2 },
+        },
+      });
+    });
+
+    it("treats two Maps with identical entries as unchanged", () => {
+      const baseline = { tags: new Map([["a", 1]]) };
+      const current = { tags: new Map([["a", 1]]) };
+      expect(diff(baseline, current)).toBeUndefined();
+    });
+
+    it("diffs Set entries as added/removed, never modified", () => {
+      const baseline = { roles: new Set(["admin", "editor"]) };
+      const current = { roles: new Set(["editor", "viewer"]) };
+
+      const result = diff(baseline, current);
+
+      expect(result).toEqual({
+        roles: {
+          viewer: { action: "added", value: "viewer" },
+          admin: { action: "removed", value: "admin" },
+        },
+      });
+    });
+
+    it("compares RegExp by source and flags, not by reference", () => {
+      expect(diff({ pattern: /abc/gi }, { pattern: /abc/gi })).toBeUndefined();
+
+      const result = diff({ pattern: /abc/g }, { pattern: /abc/gi });
+      expect(result?.pattern).toMatchObject({ action: "modified" });
+    });
+
+    class Money {
+      constructor(public cents: number) {}
+    }
+
+    it("falls back to reference equality for class instances by default", () => {
+      const a = new Money(100);
+      const b = new Money(100);
+      // Same content, different instance — reference equality says "changed".
+      // This is the documented default; pass `isEqual` to change it.
+      expect(diff({ price: a }, { price: b })?.price).toMatchObject({ action: "modified" });
+      expect(diff({ price: a }, { price: a })).toBeUndefined();
+    });
+
+    it("accepts a custom isEqual for class instances", () => {
+      const a = new Money(100);
+      const b = new Money(100);
+      const c = new Money(150);
+
+      const isEqual = (x: unknown, y: unknown) => (x instanceof Money && y instanceof Money ? x.cents === y.cents : Object.is(x, y));
+
+      expect(diff({ price: a }, { price: b }, { isEqual })).toBeUndefined();
+      expect(diff({ price: a }, { price: c }, { isEqual })?.price).toEqual({
+        action: "modified",
+        value: c,
+        previousValue: a,
+      });
+    });
+  });
+
+  describe("circular references", () => {
+    it("does not stack-overflow on a self-referential object at the root", () => {
+      const baseline: Record<string, unknown> = { name: "A" };
+      baseline["self"] = baseline;
+      const current: Record<string, unknown> = { name: "B" };
+      current["self"] = current;
+
+      const result = diff(baseline, current);
+      expect(result).toEqual({ name: { action: "modified", value: "B", previousValue: "A" } });
+    });
+
+    it("does not stack-overflow on a cycle two levels deep", () => {
+      const baseline: Record<string, unknown> = { name: "A" };
+      const baselineChild: Record<string, unknown> = { parent: baseline };
+      baseline["child"] = baselineChild;
+
+      const current: Record<string, unknown> = { name: "B" };
+      const currentChild: Record<string, unknown> = { parent: current };
+      current["child"] = currentChild;
+
+      const result = diff(baseline, current);
+      expect(result).toEqual({ name: { action: "modified", value: "B", previousValue: "A" } });
+    });
+
+    it("does not stack-overflow on a cycle inside an array item", () => {
+      const baseline: Record<string, unknown> = { id: 1, name: "A" };
+      baseline["self"] = [baseline];
+      const current: Record<string, unknown> = { id: 1, name: "B" };
+      current["self"] = [current];
+
+      const result = diff([baseline], [current]);
+      expect(result).toEqual({
+        "1": { name: { action: "modified", value: "B", previousValue: "A" } },
+      });
+    });
+  });
+
+  describe("arrayStrategy: 'sequence'", () => {
+    // A pure reversal is NOT "no diff": every pair of elements swaps relative
+    // order, so no two elements can stay matched — same reason `git diff`
+    // shows a fully-reversed line order as many changed lines, not zero.
+    it("still needs one remove+add per element that loses its relative order", () => {
+      const result = diff([1, 2, 3], [3, 2, 1], { arrayStrategy: "sequence" });
+      expect(result).toEqual({
+        "-0": { action: "removed", value: 1 },
+        "-1": { action: "removed", value: 2 },
+        "+1": { action: "added", value: 2 },
+        "+2": { action: "added", value: 1 },
+      });
+    });
+
+    it("leaves items that keep their relative order untouched, even without an id", () => {
+      const a = { name: "a" };
+      const b = { name: "b" };
+      // "a" moves from front to back; "b" keeps the same position relative
+      // to "a" either way, so it never shows up in the diff at all.
+      const result = diff([a, b], [b, a], { arrayStrategy: "sequence" });
+      expect(result).toEqual({
+        "-0": { action: "removed", value: a },
+        "+1": { action: "added", value: a },
+      });
+    });
+
+    it("reports a genuinely different item as removed+added, not modified, without an id", () => {
+      const a = { name: "a" };
+      const b = { name: "b" };
+      const x = { name: "x" };
+
+      // [a, b] -> [x, a]: "b" is replaced by "x", "a" just moves.
+      const result = diff([a, b], [x, a], { arrayStrategy: "sequence" });
+
+      expect(result).toEqual({
+        "+0": { action: "added", value: x },
+        "-1": { action: "removed", value: b },
+      });
+    });
+
+    it("byId remains the default: the same reorder reports every shifted item as modified", () => {
+      const result = diff([1, 2, 3], [3, 2, 1]);
+      expect(result).toEqual({
+        "#0": { action: "modified", value: 3, previousValue: 1 },
+        "#2": { action: "modified", value: 1, previousValue: 3 },
+      });
+    });
+  });
 });

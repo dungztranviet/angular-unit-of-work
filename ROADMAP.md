@@ -4,6 +4,9 @@ Tracked here instead of as an issue list because there's no maintainer team yet 
 plan for the three gaps called out in [README → Known limitations](README.md#known-limitations).
 Ordered by priority, not by size.
 
+**Status: all three items below are implemented.** Left in place (rather than deleted) as a
+record of the reasoning — including a wrong assumption caught during testing, noted under item 3.
+
 ## Priority order and why
 
 **Silently wrong beats loudly broken.** A diff that misses a real change and reports
@@ -17,7 +20,7 @@ person who hits it; a silent wrong answer might not.
 3. **Array reorder without an id** — documented, degrades gracefully (over-reports, doesn't
    under-report), lowest priority.
 
-## 1. Map / Set / RegExp / class instances
+## 1. Map / Set / RegExp / class instances — ✅ done
 
 **Problem:** `isPlainObject()` in `src/diff.ts` only excludes `Array` and `Date`. Anything else
 with `typeof value === "object"` — a `Map`, a `Set`, a `RegExp`, a class instance with private
@@ -46,7 +49,13 @@ fields — falls into `diffObject()`, which walks `Object.keys()`. For a `Map`/`
 flags; a custom class instance compared by reference; a custom class instance via a registered
 comparator.
 
-## 2. Circular references
+**What actually shipped:** option (b)'s spirit, but simpler than a `registerType()` registry — a
+single `isEqual: (baseline, current) => boolean` option, used as the fallback comparison for
+anything that isn't array/object/`Date`/`Map`/`Set`/`RegExp`. One function to override covers the
+same ground as a type registry for the realistic case (a handful of known class types), without
+the API surface of a plugin system.
+
+## 2. Circular references — ✅ done
 
 **Problem:** `diffObject`/`diffArray` recurse with no visited-set. `const a = {}; a.self = a;`
 diffed against itself (or a similarly circular structure) recurses forever.
@@ -66,7 +75,10 @@ diffed against itself (or a similarly circular structure) recurses forever.
 **Tests to add:** self-referential object at the root; a circular reference two levels deep; a
 circular reference inside an array item.
 
-## 3. Array reorder without an `idKey` match
+**What actually shipped:** exactly the planned approach — a stack of `[baseline, current]` pairs
+threaded through `ResolvedOptions`, pushed/popped around each container comparison.
+
+## 3. Array reorder without an `idKey` match — ✅ done
 
 **Problem:** `itemKey()` falls back to `#${index}` when an item has no `idKey` property. Two
 arrays that are the same items in a different order then diff as "every shifted index modified,"
@@ -85,6 +97,15 @@ which is technically true positionally but almost never what the caller wants to
 **Tests to add:** reversing a 3-item array of primitives; moving one item from the front to the
 back of an object array with no `id`; interleaving an actual content change with a reorder in the
 same diff.
+
+**Correction made while writing those tests:** the first test above was originally going to
+assert that reversing `[1, 2, 3]` produces *no diff*. That's wrong — a full reversal swaps the
+relative order of every pair of elements, so no LCS-based diff can match more than one element
+across it; it necessarily reports 2 removed + 2 added, the same way `git diff` shows a
+fully-reversed line order as many changed lines, not zero. The test that actually demonstrates
+`"sequence"`'s value is the second one: moving *one* item while the rest keep their relative
+order leaves those other items completely untouched in the diff, which `"byId"` cannot do without
+an id.
 
 ## Out of scope for now
 
