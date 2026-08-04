@@ -1,5 +1,5 @@
 import { signal } from "@angular/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { trackChanges } from "../src/track-changes.js";
 
 interface Column {
@@ -76,5 +76,20 @@ describe("trackChanges", () => {
       "2": { action: "added", value: { id: 2, displayName: "Other" } },
       "1": { action: "removed", value: { id: 1, displayName: "Name" } },
     });
+  });
+
+  it("delegates to a custom compare function instead of the bundled diff", () => {
+    const data = signal<Column[]>([{ id: 1, displayName: "Name" }]);
+    const compare = vi.fn(() => ({ custom: { action: "modified" as const, value: "stub" } }));
+    const tracker = trackChanges(data, { compare });
+
+    data.update((items) => items.map((item) => ({ ...item, displayName: "Full name" })));
+
+    expect(tracker.changes()).toEqual({ custom: { action: "modified", value: "stub" } });
+    expect(compare).toHaveBeenCalledWith(
+      [{ id: 1, displayName: "Name" }],
+      [{ id: 1, displayName: "Full name" }],
+      { compare },
+    );
   });
 });

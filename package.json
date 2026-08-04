@@ -1,11 +1,12 @@
 {
   "name": "angular-unit-of-work",
   "version": "0.1.0",
-  "description": "Reactive change-tracking for Angular Signals — know exactly what changed, send a minimal diff, revert in one call. No polling, no effects, just computed().",
+  "description": "The Angular Signals adapter for change-tracking — plug in any diff function, get back reactive changes/hasChanges/commit/revert. No polling, no effects, just computed().",
   "keywords": [
     "angular",
     "signals",
     "computed",
+    "adapter",
     "change-tracking",
     "dirty-checking",
     "diff",
