@@ -1,0 +1,52 @@
+{
+  "name": "angular-unit-of-work",
+  "version": "0.1.0",
+  "description": "Reactive change-tracking for Angular Signals — know exactly what changed, send a minimal diff, revert in one call. No polling, no effects, just computed().",
+  "keywords": [
+    "angular",
+    "signals",
+    "computed",
+    "change-tracking",
+    "dirty-checking",
+    "diff",
+    "form-state",
+    "unsaved-changes"
+  ],
+  "license": "MIT",
+  "author": "Dan Tran",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "peerDependencies": {
+    "@angular/core": ">=17.0.0"
+  },
+  "devDependencies": {
+    "@angular/core": "^22.1.0",
+    "rxjs": "^7.8.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
