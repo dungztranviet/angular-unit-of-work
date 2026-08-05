@@ -130,6 +130,41 @@ a `Set` has no sub-properties to modify). `RegExp`s are compared by `.source` + 
 references are detected and stopped at the second occurrence of the same (baseline, current) pair
 — they won't crash, but nothing past that point in the cycle is compared.
 
+### `currentValues(changeSet)` / `tracker.currentValues`
+
+`changes()` keeps `action` and `previousValue` on purpose — that detail is what makes it useful
+for an audit trail, a "review your changes" screen, or (with `arrayStrategy`) telling "moved" apart
+from "added". None of that is needed if all you want is a flat payload of current values. Both the
+standalone function and the tracker's own reactive signal give you that, lossily, on top of the
+same `ChangeSet`:
+
+```ts
+diff({ name: "A" }, { name: "B" });
+// { name: { action: "modified", value: "B", previousValue: "A" } }
+
+currentValues(diff({ name: "A" }, { name: "B" }));
+// { name: "B" }
+
+// on a tracker:
+tracker.currentValues(); // Signal<Record<string, unknown> | undefined>, mirrors tracker.changes()
+```
+
+A `removed` array/Map/Set entry has no "current value" by definition — it becomes `null`, not the
+deleted item's old content:
+
+```ts
+currentValues(diff([{ id: 1, name: "one" }], []));
+// { "1": null }
+```
+
+**`previousValue` is for humans and audit logs, not for trusting the client.** If you're tempted to
+send it to a server for optimistic concurrency, don't — a client-supplied "old value" isn't
+verified against anything and the server can just read the current value itself. Real optimistic
+concurrency wants a single opaque version token (a `RowVersion`/`ETag`/timestamp) compared
+server-side, not a set of business field values echoed back by the client. `previousValue` is
+genuinely useful for showing *what changed* to a person, or logging it — not for deciding whether
+a write is safe to apply.
+
 ### The `ChangeSet` shape
 
 A `ChangeSet` is a plain object tree. Every key that didn't change is simply absent — there is no

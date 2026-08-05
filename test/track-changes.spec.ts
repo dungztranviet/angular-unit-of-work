@@ -113,4 +113,30 @@ describe("trackChanges", () => {
       { compare },
     );
   });
+
+  it("currentValues() mirrors changes() with action/previousValue dropped", () => {
+    const data = signal<Column[]>([{ id: 1, displayName: "Name" }]);
+    const tracker = trackChanges(data);
+
+    expect(tracker.currentValues()).toBeUndefined();
+
+    data.update((items) => items.map((item) => ({ ...item, displayName: "Full name" })));
+    expect(tracker.currentValues()).toEqual({ "1": { displayName: "Full name" } });
+
+    data.set([{ id: 2, displayName: "Other" }]);
+    expect(tracker.currentValues()).toEqual({
+      "2": { id: 2, displayName: "Other" },
+      "1": null, // removed - no "current value" to report
+    });
+  });
+
+  it("currentValues() also works with a custom compare (falls back to structural detection)", () => {
+    const data = signal<Column[]>([{ id: 1, displayName: "Name" }]);
+    const compare = () => ({ custom: { action: "modified" as const, value: "stub" } });
+    const tracker = trackChanges(data, { compare });
+
+    data.update((items) => items.map((item) => ({ ...item, displayName: "Full name" })));
+
+    expect(tracker.currentValues()).toEqual({ custom: "stub" });
+  });
 });

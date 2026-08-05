@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clonePreservingInstances, diff, hasChanges } from "../src/diff.js";
+import { clonePreservingInstances, currentValues, diff, hasChanges } from "../src/diff.js";
 
 describe("diff", () => {
   it("returns undefined when nothing changed", () => {
@@ -303,6 +303,43 @@ describe("diff", () => {
       // are never traversed, so there is nothing to deep-clone into.
       expect(clone.price).toBe(original.price);
       expect(clone.price instanceof Money).toBe(true);
+    });
+  });
+
+  describe("currentValues", () => {
+    it("returns undefined when there is no diff", () => {
+      expect(currentValues(diff({ a: 1 }, { a: 1 }))).toBeUndefined();
+    });
+
+    it("drops action and previousValue from a flat object diff", () => {
+      const result = currentValues(diff({ name: "A", age: 30 }, { name: "B", age: 30 }));
+      expect(result).toEqual({ name: "B" });
+    });
+
+    it("recurses into nested objects", () => {
+      const result = currentValues(diff({ vessel: { name: "Alpha" } }, { vessel: { name: "Beta" } }));
+      expect(result).toEqual({ vessel: { name: "Beta" } });
+    });
+
+    it("maps a removed array item to null instead of its old content", () => {
+      const baseline = [{ id: 1, name: "one" }, { id: 2, name: "two" }];
+      const current = [{ id: 2, name: "two" }, { id: 3, name: "three" }];
+
+      const result = currentValues(diff(baseline, current));
+
+      expect(result).toEqual({
+        "3": { id: 3, name: "three" }, // added -> the value itself
+        "1": null, // removed -> null, not the deleted item
+      });
+    });
+
+    it("uses a value change even when the tracked data has its own 'action' field", () => {
+      // Regression: isValueChange() used to duck-type on `"action" in node`,
+      // which would misfire on data that itself has a field named "action".
+      const result = currentValues(
+        diff({ workflow: { action: "draft" } }, { workflow: { action: "published" } }),
+      );
+      expect(result).toEqual({ workflow: { action: "published" } });
     });
   });
 });

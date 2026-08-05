@@ -1,5 +1,12 @@
 import { computed, signal, type Signal, type WritableSignal } from "@angular/core";
-import { clonePreservingInstances, diff, hasChanges, type ChangeSet, type DiffOptions } from "./diff.js";
+import {
+  clonePreservingInstances,
+  currentValues as flattenToCurrentValues,
+  diff,
+  hasChanges,
+  type ChangeSet,
+  type DiffOptions,
+} from "./diff.js";
 
 /** A comparison function compatible with {@link TrackChangesOptions.compare}. */
 export type Comparator<T> = (baseline: T, current: T, options: DiffOptions) => ChangeSet | undefined;
@@ -22,6 +29,13 @@ export interface TrackChangesOptions<T> extends DiffOptions {
 export interface ChangeTracker<T> {
   readonly changes: Signal<ChangeSet | undefined>;
   readonly hasChanges: Signal<boolean>;
+  /**
+   * `changes()` reduced to just the current values — drops `action` and
+   * `previousValue` everywhere; a removed entry becomes `null`. A lossy
+   * convenience view for building a flat payload; read `changes` directly
+   * when you need the full detail.
+   */
+  readonly currentValues: Signal<Record<string, unknown> | undefined>;
   /** Moves the baseline to the current value — call this after a successful save. */
   commit(): void;
   /** Discards in-progress edits by writing the baseline back into the source signal. */
@@ -43,10 +57,12 @@ export function trackChanges<T>(source: WritableSignal<T>, options: TrackChanges
 
   const changes = computed(() => compare(baseline(), source(), options));
   const changesPresent = computed(() => hasChanges(changes()));
+  const currentValues = computed(() => flattenToCurrentValues(changes()));
 
   return {
     changes,
     hasChanges: changesPresent,
+    currentValues,
     commit: () => baseline.set(clonePreservingInstances(source())),
     revert: () => source.set(clonePreservingInstances(baseline())),
   };

@@ -74,8 +74,45 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function leafChange(current: unknown, previousValue: unknown): ValueChange {
-  return { action: "modified", value: current, previousValue };
+/**
+ * Every `ValueChange` leaf is tagged with this non-enumerable symbol so it
+ * can be told apart from a nested `ChangeSet` reliably — checking for an
+ * `"action"` property would misfire if the tracked data itself has a field
+ * literally named `action`. The symbol never appears in `Object.keys()`,
+ * `JSON.stringify()`, or the public `ChangeSet` shape.
+ */
+const VALUE_CHANGE_TAG = Symbol("angular-unit-of-work.ValueChange");
+
+function tagValueChange(change: ValueChange): ValueChange {
+  Object.defineProperty(change, VALUE_CHANGE_TAG, { value: true, enumerable: false });
+  return change;
+}
+
+/**
+ * True for anything produced by {@link modifiedChange}/{@link addedChange}/
+ * {@link removedChange} (checked via the tag, with certainty) — and, as a
+ * fallback for `ChangeSet`s coming from a custom `compare` (which has no way
+ * to attach that tag), for anything shaped like `{ action, value }`. The
+ * fallback carries the same narrow collision risk the tag exists to avoid,
+ * but only for changes this module didn't build itself.
+ */
+function isValueChange(node: ChangeNode): node is ValueChange {
+  const tagged = (node as Record<PropertyKey, unknown>)[VALUE_CHANGE_TAG];
+  if (tagged !== undefined) return Boolean(tagged);
+  const candidate = node as Record<string, unknown>;
+  return "action" in candidate && "value" in candidate;
+}
+
+function modifiedChange(value: unknown, previousValue: unknown): ValueChange {
+  return tagValueChange({ action: "modified", value, previousValue });
+}
+
+function addedChange(value: unknown): ValueChange {
+  return tagValueChange({ action: "added", value });
+}
+
+function removedChange(value: unknown): ValueChange {
+  return tagValueChange({ action: "removed", value });
 }
 
 function sameDate(a: Date, b: Date): boolean {
@@ -128,13 +165,13 @@ function diffArrayById(baseline: unknown[], current: unknown[], options: Resolve
 
     for (const [key, item] of after) {
       if (!before.has(key)) {
-        result[key] = { action: "added", value: item };
+        result[key] = addedChange(item);
       }
     }
 
     for (const [key, item] of before) {
       if (!after.has(key)) {
-        result[key] = { action: "removed", value: item };
+        result[key] = removedChange(item);
       }
     }
 
@@ -184,19 +221,19 @@ function diffArraySequence(baseline: unknown[], current: unknown[], options: Res
         i++;
         j++;
       } else if ((dp[i + 1]?.[j] ?? 0) >= (dp[i]?.[j + 1] ?? 0)) {
-        result[`-${i}`] = { action: "removed", value: baseline[i] };
+        result[`-${i}`] = removedChange(baseline[i]);
         i++;
       } else {
-        result[`+${j}`] = { action: "added", value: current[j] };
+        result[`+${j}`] = addedChange(current[j]);
         j++;
       }
     }
     while (i < n) {
-      result[`-${i}`] = { action: "removed", value: baseline[i] };
+      result[`-${i}`] = removedChange(baseline[i]);
       i++;
     }
     while (j < m) {
-      result[`+${j}`] = { action: "added", value: current[j] };
+      result[`+${j}`] = addedChange(current[j]);
       j++;
     }
 
@@ -237,13 +274,13 @@ function diffMap(baseline: Map<unknown, unknown>, current: Map<unknown, unknown>
 
     for (const [key, value] of current) {
       if (!baseline.has(key)) {
-        result[String(key)] = { action: "added", value };
+        result[String(key)] = addedChange(value);
       }
     }
 
     for (const [key, value] of baseline) {
       if (!current.has(key)) {
-        result[String(key)] = { action: "removed", value };
+        result[String(key)] = removedChange(value);
       }
     }
 
@@ -279,12 +316,12 @@ function diffSet(baseline: Set<unknown>, current: Set<unknown>, options: Resolve
 
     for (const value of current) {
       if (!baseline.has(value)) {
-        result[keyFor(value)] = { action: "added", value };
+        result[keyFor(value)] = addedChange(value);
       }
     }
     for (const value of baseline) {
       if (!current.has(value)) {
-        result[keyFor(value)] = { action: "removed", value };
+        result[keyFor(value)] = removedChange(value);
       }
     }
 
@@ -307,11 +344,11 @@ function diffValue(baseline: unknown, current: unknown, options: ResolvedOptions
   }
 
   if (baseline instanceof Date && current instanceof Date) {
-    return sameDate(baseline, current) ? undefined : leafChange(current, baseline);
+    return sameDate(baseline, current) ? undefined : modifiedChange(current, baseline);
   }
 
   if (baseline instanceof RegExp && current instanceof RegExp) {
-    return sameRegExp(baseline, current) ? undefined : leafChange(current, baseline);
+    return sameRegExp(baseline, current) ? undefined : modifiedChange(current, baseline);
   }
 
   if (baseline instanceof Map && current instanceof Map) {
@@ -326,7 +363,7 @@ function diffValue(baseline: unknown, current: unknown, options: ResolvedOptions
     return diffObject(baseline, current, options);
   }
 
-  return options.isEqual(baseline, current) ? undefined : leafChange(current, baseline);
+  return options.isEqual(baseline, current) ? undefined : modifiedChange(current, baseline);
 }
 
 /**
@@ -349,6 +386,42 @@ export function diff<T>(baseline: T, current: T, options: DiffOptions = {}): Cha
 /** Whether a {@link ChangeSet} produced by {@link diff} contains any changes. */
 export function hasChanges(changeSet: ChangeSet | undefined): boolean {
   return changeSet !== undefined && Object.keys(changeSet).length > 0;
+}
+
+function flattenToCurrentValue(node: ChangeNode): unknown {
+  if (isValueChange(node)) {
+    // A removed entry has no "current value" by definition - it's gone.
+    return node.action === "removed" ? null : node.value;
+  }
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(node)) {
+    result[key] = flattenToCurrentValue(node[key] as ChangeNode);
+  }
+  return result;
+}
+
+/**
+ * Reduces a {@link ChangeSet} down to just the current values — drops
+ * `action` and `previousValue` everywhere, recursively. A `removed` array,
+ * `Map`, or `Set` entry has no "current value" by definition, so it becomes
+ * `null` rather than the deleted item's old content.
+ *
+ * This is a lossy convenience view for when you only need to build a plain
+ * `{ field: value }` payload and don't care why a key is present — `diff()`
+ * and `changes()` themselves keep the full detail; this throws part of it
+ * away on purpose.
+ *
+ * ```ts
+ * diff({ name: "A" }, { name: "B" });
+ * // { name: { action: "modified", value: "B", previousValue: "A" } }
+ *
+ * currentValues(diff({ name: "A" }, { name: "B" }));
+ * // { name: "B" }
+ * ```
+ */
+export function currentValues(changeSet: ChangeSet | undefined): Record<string, unknown> | undefined {
+  if (changeSet === undefined) return undefined;
+  return flattenToCurrentValue(changeSet) as Record<string, unknown>;
 }
 
 /**
