@@ -1,5 +1,5 @@
 import { computed, signal, type Signal, type WritableSignal } from "@angular/core";
-import { diff, hasChanges, type ChangeSet, type DiffOptions } from "./diff.js";
+import { clonePreservingInstances, diff, hasChanges, type ChangeSet, type DiffOptions } from "./diff.js";
 
 /** A comparison function compatible with {@link TrackChangesOptions.compare}. */
 export type Comparator<T> = (baseline: T, current: T, options: DiffOptions) => ChangeSet | undefined;
@@ -39,7 +39,7 @@ export interface ChangeTracker<T> {
  */
 export function trackChanges<T>(source: WritableSignal<T>, options: TrackChangesOptions<T> = {}): ChangeTracker<T> {
   const compare = options.compare ?? diff;
-  const baseline = signal<T>(structuredClone(source()));
+  const baseline = signal<T>(clonePreservingInstances(source()));
 
   const changes = computed(() => compare(baseline(), source(), options));
   const changesPresent = computed(() => hasChanges(changes()));
@@ -47,7 +47,7 @@ export function trackChanges<T>(source: WritableSignal<T>, options: TrackChanges
   return {
     changes,
     hasChanges: changesPresent,
-    commit: () => baseline.set(structuredClone(source())),
-    revert: () => source.set(structuredClone(baseline())),
+    commit: () => baseline.set(clonePreservingInstances(source())),
+    revert: () => source.set(clonePreservingInstances(baseline())),
   };
 }

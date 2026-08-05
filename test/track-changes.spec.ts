@@ -78,6 +78,27 @@ describe("trackChanges", () => {
     });
   });
 
+  it("preserves class instances in the baseline (regression: structuredClone used to strip them)", () => {
+    class Money {
+      constructor(public cents: number) {}
+    }
+
+    const state = signal<{ price: Money }>({ price: new Money(1000) });
+    const isEqual = (a: unknown, b: unknown) =>
+      a instanceof Money && b instanceof Money ? a.cents === b.cents : Object.is(a, b);
+    const tracker = trackChanges(state, { isEqual });
+
+    // Same value, brand-new instance. If the baseline snapshot silently turned
+    // the original Money into a plain object, `b instanceof Money` below would
+    // be false for the baseline side and isEqual would wrongly report a change.
+    state.update((current) => ({ ...current, price: new Money(1000) }));
+
+    expect(tracker.hasChanges()).toBe(false);
+
+    state.update((current) => ({ ...current, price: new Money(2000) }));
+    expect(tracker.hasChanges()).toBe(true);
+  });
+
   it("delegates to a custom compare function instead of the bundled diff", () => {
     const data = signal<Column[]>([{ id: 1, displayName: "Name" }]);
     const compare = vi.fn(() => ({ custom: { action: "modified" as const, value: "stub" } }));

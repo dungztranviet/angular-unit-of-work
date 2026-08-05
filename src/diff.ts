@@ -350,3 +350,38 @@ export function diff<T>(baseline: T, current: T, options: DiffOptions = {}): Cha
 export function hasChanges(changeSet: ChangeSet | undefined): boolean {
   return changeSet !== undefined && Object.keys(changeSet).length > 0;
 }
+
+/**
+ * Clones arrays, plain objects, `Date`, `Map`, and `Set` recursively — but
+ * leaves anything else (class instances, `RegExp`, functions) as the exact
+ * same reference. Used to snapshot a baseline for {@link diff} without
+ * silently turning class instances into plain objects, which would break
+ * `instanceof` checks inside a custom {@link DiffOptions.isEqual}.
+ *
+ * `structuredClone` looks like the obvious tool for this, but it clones a
+ * class instance into a plain object with the same fields — it does not
+ * preserve the prototype. That's fine for `JSON`-shaped data; it silently
+ * breaks anything that compares custom class instances by type.
+ */
+export function clonePreservingInstances<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => clonePreservingInstances(item)) as T;
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime()) as T;
+  }
+  if (value instanceof Map) {
+    return new Map(Array.from(value, ([key, entry]) => [key, clonePreservingInstances(entry)])) as T;
+  }
+  if (value instanceof Set) {
+    return new Set(Array.from(value, (item) => clonePreservingInstances(item))) as T;
+  }
+  if (isPlainObject(value)) {
+    const result: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      result[key] = clonePreservingInstances(value[key]);
+    }
+    return result as T;
+  }
+  return value;
+}

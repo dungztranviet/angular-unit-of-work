@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diff, hasChanges } from "../src/diff.js";
+import { clonePreservingInstances, diff, hasChanges } from "../src/diff.js";
 
 describe("diff", () => {
   it("returns undefined when nothing changed", () => {
@@ -267,6 +267,42 @@ describe("diff", () => {
         "#0": { action: "modified", value: 3, previousValue: 1 },
         "#2": { action: "modified", value: 1, previousValue: 3 },
       });
+    });
+  });
+
+  describe("clonePreservingInstances", () => {
+    class Money {
+      constructor(public cents: number) {}
+    }
+
+    it("deep-clones arrays, plain objects, Date, Map, and Set", () => {
+      const original = {
+        list: [1, 2],
+        nested: { a: 1 },
+        when: new Date("2026-01-01T00:00:00Z"),
+        map: new Map([["a", 1]]),
+        set: new Set([1, 2]),
+      };
+
+      const clone = clonePreservingInstances(original);
+
+      expect(clone).not.toBe(original);
+      expect(clone.list).not.toBe(original.list);
+      expect(clone.nested).not.toBe(original.nested);
+      expect(clone.when).not.toBe(original.when);
+      expect(clone.map).not.toBe(original.map);
+      expect(clone.set).not.toBe(original.set);
+      expect(clone).toEqual(original);
+    });
+
+    it("does NOT turn a class instance into a plain object (unlike structuredClone)", () => {
+      const original = { price: new Money(1000) };
+      const clone = clonePreservingInstances(original);
+
+      // Same reference on purpose: class instances are treated as opaque and
+      // are never traversed, so there is nothing to deep-clone into.
+      expect(clone.price).toBe(original.price);
+      expect(clone.price instanceof Money).toBe(true);
     });
   });
 });
