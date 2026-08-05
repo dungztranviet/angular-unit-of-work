@@ -15,6 +15,14 @@
   ],
   "license": "MIT",
   "author": "Dan Tran",
+  "homepage": "https://github.com/dungztranviet/angular-unit-of-work#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dungztranviet/angular-unit-of-work.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dungztranviet/angular-unit-of-work/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
