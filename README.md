@@ -165,6 +165,22 @@ server-side, not a set of business field values echoed back by the client. `prev
 genuinely useful for showing *what changed* to a person, or logging it — not for deciding whether
 a write is safe to apply.
 
+**Neither `changes()` nor `currentValues()` is what you want for a full `PUT`.** Both only ever
+contain the fields that actually changed — that's the entire point. If your API replaces the whole
+resource instead of patching it (or needs the full object for validation, or you're intentionally
+doing whole-object "last write wins" instead of a field-level merge), send the source signal itself,
+not the tracker's output:
+
+```ts
+if (tracker.hasChanges()) {   // still useful: gate the request, skip a no-op call
+  await api.save(form());     // the full object — read straight from the signal, bypass the tracker
+  tracker.commit();
+}
+```
+
+`hasChanges()`/`changes()`/`currentValues()` exist to save you from sending the whole object. If
+that's exactly what you want to send, there's nothing to opt into — `form()` already has it.
+
 ### The `ChangeSet` shape
 
 A `ChangeSet` is a plain object tree. Every key that didn't change is simply absent — there is no
