@@ -17,6 +17,8 @@ tracker.revert();      // draft is back to the original vessel
 tracker.commit();      // or: keep the edit, move the baseline forward
 ```
 
+<img src="docs/lifecycle.svg" alt="Lifecycle: load data, trackChanges() snapshots a baseline, the user edits repeatedly, then commit or revert, then submit currentValues() or changes() to the API." width="680">
+
 ## What this is (and isn't)
 
 **This is not a diffing library competing with `microdiff`, `fast-json-patch`, or
